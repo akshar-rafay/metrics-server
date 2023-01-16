@@ -14,9 +14,12 @@ BUILD_DATE:=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 ALL_ARCHITECTURES=amd64 arm arm64 ppc64le s390x
 export DOCKER_CLI_EXPERIMENTAL=enabled
 
+# Tools versions
+# --------------
+GOLANGCI_VERSION:=1.50.1
+
 # Computed variables
 # ------------------
-HAS_GOLANGCI:=$(shell which golangci-lint)
 GOPATH:=$(shell go env GOPATH)
 REPO_DIR:=$(shell pwd)
 LDFLAGS=-w $(VERSION_LDFLAGS)
@@ -44,7 +47,7 @@ CONTAINER_ARCH_TARGETS=$(addprefix container-,$(ALL_ARCHITECTURES))
 container:
 	# Pull base image explicitly. Keep in sync with Dockerfile, otherwise
 	# GCB builds will start failing.
-	docker pull golang:1.19.0
+	docker pull golang:1.19.4
 	docker build -t $(REGISTRY)/metrics-server-$(ARCH):$(CHECKSUM) --build-arg ARCH=$(ARCH) --build-arg GIT_TAG=$(GIT_TAG) --build-arg GIT_COMMIT=$(GIT_COMMIT) .
 
 .PHONY: container-all
@@ -90,6 +93,7 @@ release-manifests:
 	mkdir -p _output
 	kubectl kustomize manifests/overlays/release > _output/components.yaml
 	kubectl kustomize manifests/overlays/release-ha > _output/high-availability.yaml
+	kubectl kustomize manifests/overlays/release-ha-1.21+ > _output/high-availability-1.21+.yaml
 
 
 # fuzz tests
@@ -147,22 +151,22 @@ test-image-all:
 # -----------
 
 .PHONY: test-e2e
-test-e2e: test-e2e-1.25
+test-e2e: test-e2e-1.26
 
 .PHONY: test-e2e-all
-test-e2e-all: test-e2e-1.25 test-e2e-1.24 test-e2e-1.23
+test-e2e-all: test-e2e-1.26 test-e2e-1.25 test-e2e-1.24
+
+.PHONY: test-e2e-1.26
+test-e2e-1.26:
+	NODE_IMAGE=kindest/node:v1.26.0@sha256:691e24bd2417609db7e589e1a479b902d2e209892a10ce375fab60a8407c7352 ./test/test-e2e.sh
 
 .PHONY: test-e2e-1.25
 test-e2e-1.25:
-	NODE_IMAGE=kindest/node:v1.25.0@sha256:428aaa17ec82ccde0131cb2d1ca6547d13cf5fdabcc0bbecf749baa935387cbf ./test/test-e2e.sh
+	NODE_IMAGE=kindest/node:v1.25.3@sha256:f52781bc0d7a19fb6c405c2af83abfeb311f130707a0e219175677e366cc45d1 ./test/test-e2e.sh
 
 .PHONY: test-e2e-1.24
 test-e2e-1.24:
-	NODE_IMAGE=kindest/node:v1.24.4@sha256:adfaebada924a26c2c9308edd53c6e33b3d4e453782c0063dc0028bdebaddf98 ./test/test-e2e.sh
-
-.PHONY: test-e2e-1.23
-test-e2e-1.23:
-	NODE_IMAGE=kindest/node:v1.23.10@sha256:f047448af6a656fae7bc909e2fab360c18c487ef3edc93f06d78cdfd864b2d12 ./test/test-e2e.sh
+	NODE_IMAGE=kindest/node:v1.24.7@sha256:577c630ce8e509131eab1aea12c022190978dd2f745aac5eb1fe65c0807eb315 ./test/test-e2e.sh
 
 .PHONY: test-e2e-ha
 test-e2e-ha:
@@ -212,17 +216,17 @@ endif
 
 .PHONY: verify-lint
 verify-lint: golangci
-	golangci-lint run --timeout 10m --modules-download-mode=readonly || (echo 'Run "make update"' && exit 1)
+	$(GOPATH)/bin/golangci-lint run --timeout 10m --modules-download-mode=readonly || (echo 'Run "make update"' && exit 1)
 
 .PHONY: update-lint
 update-lint: golangci
-	golangci-lint run --fix --modules-download-mode=readonly
+	$(GOPATH)/bin/golangci-lint run --fix --modules-download-mode=readonly
 
-HAS_GOLANGCI:=$(shell which golangci-lint)
+HAS_GOLANGCI_VERSION:=$(shell $(GOPATH)/bin/golangci-lint version --format=short)
 .PHONY: golangci
 golangci:
-ifndef HAS_GOLANGCI
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.48.0
+ifneq ($(HAS_GOLANGCI_VERSION), $(GOLANGCI_VERSION))
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v$(GOLANGCI_VERSION)
 endif
 
 # Table of Contents
